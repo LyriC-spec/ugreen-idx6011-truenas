@@ -1,0 +1,16 @@
+# Laufzeitdaten der Scripte
+*.log
+__pycache__/
+*.pyc
+
+# Messreihen (geraetespezifisch, gehoeren nicht ins Repo)
+thermal-baseline.log
+loadtest.log
+coupling.log
+ab-test.log
+fan-control.log
+led-network.log
+
+# gebautes Binary (siehe README: selbst bauen)
+ugreen_leds_cli
+BUILD_INFO.txt
