@@ -157,6 +157,21 @@ Zwei Konsequenzen:
 Das ist ein nützliches Sicherheitsnetz: Selbst ein abgestürzter Daemon oder eine
 falsch ausgelegte Kurve führt nicht zur Überhitzung.
 
+**Im Alltag greift das selten.** Eine Auswertung von 10 104 Log-Zeilen aus dem
+normalen Betrieb ergab CPU-Temperaturen zwischen 38 und 91 °C, aber nur **1,9 %
+der Messungen über 55 °C**. Der einzige Duty-Wert, der dort sowohl mit kühler
+als auch mit warmer CPU ausreichend oft vorkam, zeigte keinen Unterschied:
+
+| Duty | CPU < 55 °C | CPU ≥ 55 °C |
+|---:|---:|---:|
+| 119 | 1278 RPM (n=41) | 1256 RPM (n=6) |
+
+Der oben beschriebene Effekt ist damit nicht widerlegt — der A/B-Test lief unter
+GPU-Volllast, wo die CPU deutlich über 55 °C liegt. Aber die Schwelle, ab der
+die Firmware spürbar übersteuert, liegt offenbar höher als 55 °C, und im
+gewöhnlichen Betrieb regelt der Daemon Lüfter 1 unbehelligt. Wer den Effekt
+nachmessen will, braucht gezielte Last statt Betriebsdaten.
+
 ### NVMe: nur `Composite` auswerten
 
 NVMe melden mehrere Sensoren. `Composite` ist der offizielle Wert mit Warn- und

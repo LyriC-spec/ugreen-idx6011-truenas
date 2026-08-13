@@ -139,6 +139,34 @@ Beide Kennlinien sind nahezu linear. **Die Werte gelten nur, solange die
 Firmware nicht dazwischengeht** — siehe Mindestdrehzahl in
 [findings.md](findings.md).
 
+#### Gegenprobe aus dem laufenden Betrieb
+
+Die Tabelle oben entstand von Hand bei offenem Gehäuse. Zur Kontrolle wurden
+10 104 Log-Zeilen des Daemons aus dem geschlossenen Gehäuse ausgewertet
+(Median je Duty-Wert):
+
+| Duty | Lüfter 2 gemessen | Lüfter 2 im Betrieb | n |
+|---:|---:|---:|---:|
+| 198 | 7334 RPM | 7461 RPM | 37 |
+| 160 | 6594 RPM | 6634 RPM | 9 |
+| 140 | 6196 RPM | 6178 RPM | 5 |
+| 100 | 5073 RPM | 5146 RPM | 16 |
+
+Die Abweichung liegt bei ein bis zwei Prozent — die Kennlinie ist im Betrieb
+also belastbar, eher leicht konservativ. Höchster je protokollierter Wert:
+7619 RPM.
+
+**Beim Auswerten des Logs auf die Stichprobengröße achten.** Duty-Werte, die
+nur fünf bis acht Mal vorkommen, sind Durchgangszustände beim Hoch- oder
+Herunterregeln: Der Tacho wird im selben Takt gelesen, in dem der neue Wert
+geschrieben wird, und hinkt der Drehzahländerung hinterher. Solche Zeilen
+zeigen scheinbare Ausreißer bis hin zu Umkehrungen (höhere Duty, niedrigere
+Drehzahl) und taugen nicht als Messpunkt. Werte mit dreistelligem n decken
+sich dagegen sauber mit der Tabelle.
+
+Für Lüfter 1 lässt sich die Kennlinie so **nicht** gegenprüfen, weil dort die
+Firmware mitregelt (siehe [findings.md](findings.md)).
+
 ## Temperatursensoren
 
 | Quelle | hwmon-`name` | Anmerkung |
