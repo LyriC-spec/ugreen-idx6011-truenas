@@ -1,18 +1,18 @@
-# Hardware-Referenz — UGREEN iDX6011 (non-Pro)
+# Hardware reference — UGREEN iDX6011 (non-Pro)
 
-Alle Werte am 2026-08-01 auf echter Hardware verifiziert, TrueNAS SCALE
-26.0.0-BETA.2. DMI meldet sich als Produkt `iDX6011`, Hersteller `UGREEN`.
+All values verified on real hardware on 2026-08-01, TrueNAS SCALE
+26.0.0-BETA.2. DMI reports product `iDX6011`, vendor `UGREEN`.
 
 ## LEDs
 
-Angebunden über einen I²C-MCU auf dem **SMBus** (`i2c-i801`), Bus `/dev/i2c-0`,
-Adresse `0x3a`. Voraussetzung: `modprobe i2c-i801 && modprobe i2c-dev`.
+Driven by an I²C MCU on the **SMBus** (`i2c-i801`), bus `/dev/i2c-0`,
+address `0x3a`. Prerequisite: `modprobe i2c-i801 && modprobe i2c-dev`.
 
-### LED-Indizes
+### LED indices
 
-Das **non-Pro hat nur eine Netzwerk-LED** — das Pro-Modell hat zwei. Dadurch ist
-die gesamte Platten-Kette gegenüber dem Pro **um eins verschoben**. Index `0x08`
-existiert auf dem non-Pro nicht.
+The **non-Pro has only one network LED** — the Pro model has two. This shifts
+the entire drive chain **by one** compared to the Pro. Index `0x08` does not
+exist on the non-Pro.
 
 | Index | LED |
 |---|---|
@@ -25,53 +25,54 @@ existiert auf dem non-Pro nicht.
 | `0x06` | disk5 |
 | `0x07` | disk6 |
 
-### Protokoll
+### Protocol
 
-SMBus-Blockwrite (`i2cset ... s`, **nicht** `i`). Elf Bytes:
+SMBus block write (`i2cset ... s`, **not** `i`). Eleven bytes:
 
 ```
 0xA0 0x01 0x00 0x00  <cmd> <p1> <p2> <p3> <p4>  <ck_hi> <ck_lo>
 ```
 
-Prüfsumme: `sum = 0xA0 + 0x01 + cmd + p1 + p2 + p3 + p4`,
-danach `ck_hi = (sum >> 8) & 0xFF`, `ck_lo = sum & 0xFF`.
+Checksum: `sum = 0xA0 + 0x01 + cmd + p1 + p2 + p3 + p4`,
+then `ck_hi = (sum >> 8) & 0xFF`, `ck_lo = sum & 0xFF`.
 
-| cmd | Funktion | Parameter |
+| cmd | Function | Parameters |
 |---|---|---|
-| `0x01` | Helligkeit | 0–255 |
-| `0x02` | Farbe | R, G, B |
-| `0x03` | Ein/Aus | `0xFF` = ein |
-| `0x04` | Blinken | cycle_hi, cycle_lo, on_hi, on_lo |
-| `0x05` | Atmen | wie Blinken |
+| `0x01` | Brightness | 0–255 |
+| `0x02` | Colour | R, G, B |
+| `0x03` | On/off | `0xFF` = on |
+| `0x04` | Blink | cycle_hi, cycle_lo, on_hi, on_lo |
+| `0x05` | Breathe | same as blink |
 
-Beispiel — Helligkeit auf Maximum für die Power-LED:
+Example — set the power LED to maximum brightness:
 
 ```bash
 i2cset -y 0 0x3a 0x00 0xa0 0x01 0x00 0x00 0x01 0xff 0x00 0x00 0x00 0x01 0xa1 s
 ```
 
-### Blinken beenden
+### Stopping a blink
 
-Die MCU blinkt **autonom weiter**, bis man sie aktiv stoppt — es genügt nicht,
-einfach keinen Blink-Befehl mehr zu senden. Der Mode-Reset (`0x04` mit lauter
-Nullen) schaltet die LED dabei ab, deshalb muss `0x03` mit `0xFF` folgen.
+The MCU **keeps blinking on its own** until you actively stop it — simply
+ceasing to send blink commands is not enough. The mode reset (`0x04` with all
+zeros) switches the LED off in the process, so it has to be followed by `0x03`
+with `0xFF`.
 
-Funktionierende Reihenfolge für sauberes Dauerlicht, je ~50 ms Pause:
+Working sequence for a clean steady light, ~50 ms between steps:
 
 ```
-0x04 (0,0,0,0)  ->  0x01 Helligkeit  ->  0x02 Farbe  ->  0x03 0xFF  ->  0x01 Helligkeit
+0x04 (0,0,0,0)  ->  0x01 brightness  ->  0x02 colour  ->  0x03 0xFF  ->  0x01 brightness
 ```
 
-Das entspricht der Übernahme-Sequenz, mit der man der MCU nach dem Boot die
-Kontrolle abnimmt (sie fährt sonst eine eigene Animation).
+This is the same takeover sequence used to wrest control from the MCU after
+boot (otherwise it runs its own animation).
 
-## Laufwerksschächte
+## Drive bays
 
-Zuordnung Schacht → SCSI-Adresse, durch Umstecken einer einzelnen Platte
-ermittelt. Die Nummerierung ist **nicht durchgehend fortlaufend** — sie springt
-am Ende auf `0:` und `1:` zurück. Identisch zum DXP6800 Pro.
+Bay-to-SCSI-address mapping, determined by moving a single drive between bays.
+The numbering is **not contiguous** — it wraps back to `0:` and `1:` at the end.
+Identical to the DXP6800 Pro.
 
-| Schacht | ata | HCTL | LED-Index |
+| Bay | ata | HCTL | LED index |
 |---|---|---|---|
 | 1 | ata3 | `2:0:0:0` | `0x02` |
 | 2 | ata4 | `3:0:0:0` | `0x03` |
@@ -80,50 +81,49 @@ am Ende auf `0:` und `1:` zurück. Identisch zum DXP6800 Pro.
 | 5 | ata1 | `0:0:0:0` | `0x06` |
 | 6 | ata2 | `1:0:0:0` | `0x07` |
 
-Faustregel: SCSI-Host = `ata`-Nummer minus 1.
+Rule of thumb: SCSI host = `ata` number minus 1.
 
-## Lüfter
+## Fans
 
-Ein **ITE IT5571 Embedded Controller** — kein Super-I/O-Baustein. Chip-ID
-`0x5571` lässt sich über den Konfigurationsport `0x4e` auslesen.
+An **ITE IT5571 embedded controller** — not a Super I/O chip. Chip ID `0x5571`
+can be read via configuration port `0x4e`.
 
-Zugriff aus dem Userspace über `/dev/port` nach ACPI-EC-Protokoll:
+Accessed from userspace through `/dev/port` using the ACPI EC protocol:
 
 | | |
 |---|---|
-| Datenport | `0x62` |
-| Status-/Kommandoport | `0x66` |
-| Lesen | Kommando `0x80`, dann Adresse, dann Datenbyte |
-| Schreiben | Kommando `0x81`, dann Adresse, dann Wert |
-| Handshake | vor jedem Schritt IBF (Bit 1) abwarten, vor dem Lesen OBF (Bit 0) |
+| Data port | `0x62` |
+| Status/command port | `0x66` |
+| Read | command `0x80`, then address, then data byte |
+| Write | command `0x81`, then address, then value |
+| Handshake | wait for IBF (bit 1) before each step, OBF (bit 0) before reading |
 
-Die Ports sind vom Kernel nicht reserviert, obwohl ein ACPI-EC-Gerät
-(`PNP0C09:00`) existiert.
+The ports are not claimed by the kernel, even though an ACPI EC device
+(`PNP0C09:00`) exists.
 
-### Register (non-Pro, 2 Lüfter)
+### Registers (non-Pro, 2 fans)
 
-| Adresse | Bedeutung |
+| Address | Meaning |
 |---|---|
-| `0x96` / `0x97` | Drehzahl Lüfter 1, 16 Bit big-endian |
-| `0x98` / `0x99` | Drehzahl Lüfter 2, 16 Bit big-endian |
-| `0x9c` / `0x9d` | Lüfter 1: **Freigabe**, Geschwindigkeit (0–198) |
-| `0x9e` / `0x9f` | Lüfter 2: **Freigabe**, Geschwindigkeit (0–198) |
+| `0x96` / `0x97` | Fan 1 speed, 16-bit big-endian |
+| `0x98` / `0x99` | Fan 2 speed, 16-bit big-endian |
+| `0x9c` / `0x9d` | Fan 1: **enable**, duty (0–198) |
+| `0x9e` / `0x9f` | Fan 2: **enable**, duty (0–198) |
 
-Das Pro-Modell hat vier Lüfter auf `0x34` (Drehzahl) und `0xB0` (Ansteuerung).
+The Pro model has four fans at `0x34` (speed) and `0xB0` (control).
 
-**Das Freigabe-Byte ist Pflicht.** Steht es auf `0`, nimmt der EC den
-Geschwindigkeitswert nur teilweise an — der Lüfter dreht dann trotz Duty 198 nur
-rund drei Viertel seiner Drehzahl. Nach jedem Neustart steht es auf `0`; das
-bedeutet „Firmware regelt selbst", **nicht** „Lüfter aus" (die Lüfter drehen
-dabei durchaus).
+**The enable byte is mandatory.** Left at `0`, the EC only partially accepts the
+duty value — the fan then spins at roughly three quarters of its speed even at
+duty 198. It returns to `0` after every reboot; that means "firmware controls
+this itself", **not** "fan off" (the fans do keep spinning).
 
-### Gemessene Kennlinie
+### Measured curve
 
-Aufgenommen bei geöffnetem Gehäuse im Leerlauf. Lüfter 1 sind zwei Noctua
-NF-A9 PWM an einem Y-Kabel, Lüfter 2 ein kleiner Hochdrehzahllüfter für eine
-Tesla T4. Beide laufen bei Duty 40 noch zuverlässig an.
+Recorded with the chassis open, at idle. Fan 1 is two Noctua NF-A9 PWM on a
+Y-cable, fan 2 a small high-RPM fan for a Tesla T4. Both still start reliably
+at duty 40.
 
-| Duty | Lüfter 1 | Lüfter 2 |
+| Duty | Fan 1 | Fan 2 |
 |---:|---:|---:|
 | 198 | 1970 RPM | 7334 RPM |
 | 180 | 1819 RPM | 7000 RPM |
@@ -135,48 +135,46 @@ Tesla T4. Beide laufen bei Duty 40 noch zuverlässig an.
 | 60 | 654 RPM | 3444 RPM |
 | 40 | 399 RPM | 2409 RPM |
 
-Beide Kennlinien sind nahezu linear. **Die Werte gelten nur, solange die
-Firmware nicht dazwischengeht** — siehe Mindestdrehzahl in
+Both curves are close to linear. **These values only hold as long as the
+firmware stays out of the way** — see the minimum-speed section in
 [findings.md](findings.md).
 
-#### Gegenprobe aus dem laufenden Betrieb
+#### Cross-check against production data
 
-Die Tabelle oben entstand von Hand bei offenem Gehäuse. Zur Kontrolle wurden
-10 104 Log-Zeilen des Daemons aus dem geschlossenen Gehäuse ausgewertet
-(Median je Duty-Wert):
+The table above was recorded by hand with the chassis open. As a control,
+10,104 daemon log lines from the closed chassis were analysed (median per duty
+value):
 
-| Duty | Lüfter 2 gemessen | Lüfter 2 im Betrieb | n |
+| Duty | Fan 2, hand-measured | Fan 2, in production | n |
 |---:|---:|---:|---:|
 | 198 | 7334 RPM | 7461 RPM | 37 |
 | 160 | 6594 RPM | 6634 RPM | 9 |
 | 140 | 6196 RPM | 6178 RPM | 5 |
 | 100 | 5073 RPM | 5146 RPM | 16 |
 
-Die Abweichung liegt bei ein bis zwei Prozent — die Kennlinie ist im Betrieb
-also belastbar, eher leicht konservativ. Höchster je protokollierter Wert:
-7619 RPM.
+The deviation is one to two percent — the curve holds up in production, if
+anything slightly conservative. Highest value ever logged: 7619 RPM.
 
-**Beim Auswerten des Logs auf die Stichprobengröße achten.** Duty-Werte, die
-nur fünf bis acht Mal vorkommen, sind Durchgangszustände beim Hoch- oder
-Herunterregeln: Der Tacho wird im selben Takt gelesen, in dem der neue Wert
-geschrieben wird, und hinkt der Drehzahländerung hinterher. Solche Zeilen
-zeigen scheinbare Ausreißer bis hin zu Umkehrungen (höhere Duty, niedrigere
-Drehzahl) und taugen nicht als Messpunkt. Werte mit dreistelligem n decken
-sich dagegen sauber mit der Tabelle.
+**Watch the sample size when analysing the log.** Duty values that appear only
+five to eight times are transitional states during ramp-up or ramp-down: the
+tachometer is read in the same cycle in which the new value is written, so it
+lags behind the actual speed change. Such lines show apparent outliers, up to
+and including inversions (higher duty, lower speed), and are not valid data
+points. Values with a three-digit sample count match the table cleanly.
 
-Für Lüfter 1 lässt sich die Kennlinie so **nicht** gegenprüfen, weil dort die
-Firmware mitregelt (siehe [findings.md](findings.md)).
+Fan 1 **cannot** be cross-checked this way, because the firmware interferes
+there (see [findings.md](findings.md)).
 
-## Temperatursensoren
+## Temperature sensors
 
-| Quelle | hwmon-`name` | Anmerkung |
+| Source | hwmon `name` | Note |
 |---|---|---|
 | CPU | `coretemp` | |
-| SATA-Platten | `drivetemp` | |
-| NVMe | `nvme` | **nur `Composite` verwenden**, siehe findings.md |
-| Netzwerk-Controller | Name des Interfaces, z.B. `enp90s0` | PHY und MAC |
-| GPU | — | über `nvidia-smi`, nicht über hwmon |
+| SATA drives | `drivetemp` | |
+| NVMe | `nvme` | **use `Composite` only**, see findings.md |
+| Network controllers | interface name, e.g. `enp90s0` | PHY and MAC |
+| GPU | — | via `nvidia-smi`, not hwmon |
 
-Für die NVMe muss man das Label prüfen: Neben `Composite` (der offizielle,
-von SMART gemeldete Wert) gibt es `Sensor 1`/`Sensor 2` — interne Messpunkte,
-teils ohne definierten Grenzwert und deutlich höher.
+For NVMe you have to check the label: besides `Composite` (the official value
+reported by SMART) there are `Sensor 1`/`Sensor 2` — internal measurement
+points, some without a defined limit and reading considerably higher.

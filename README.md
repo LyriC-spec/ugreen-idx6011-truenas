@@ -1,112 +1,115 @@
-# UGREEN NASync iDX6011 (non-Pro) unter TrueNAS SCALE
+# UGREEN NASync iDX6011 (non-Pro) on TrueNAS SCALE
 
-LED- und Lüftersteuerung für den UGREEN iDX6011 **non-Pro** unter TrueNAS SCALE.
-Beides läuft vollständig im Userspace — **kein Kernel-Modul nötig**, damit
-unabhängig von der TrueNAS-Version und update-fest.
+LED and fan control for the UGREEN iDX6011 **non-Pro** running TrueNAS SCALE.
+Both run entirely in userspace — **no kernel module required**, which keeps them
+independent of the TrueNAS version and safe across updates.
 
-Getestet auf TrueNAS SCALE 26.0.0-BETA.2 (Kernel 6.18.23-production+truenas).
+Tested on TrueNAS SCALE 26.0.0-BETA.2 (kernel 6.18.23-production+truenas).
 
-> **Warum eigene Scripte und nicht die vorhandenen Projekte?**
-> Die verbreiteten Lösungen passen für dieses Modell nicht oder nur halb.
-> Die Gründe stehen in [docs/findings.md](docs/findings.md) — bitte dort lesen,
-> bevor du einen der Standardwege ausprobierst. Das spart Stunden.
+> **Why custom scripts instead of the existing projects?**
+> The common solutions either don't fit this model or only cover half of it.
+> The reasons are in [docs/findings.md](docs/findings.md) — please read that
+> before trying one of the standard routes. It will save you hours.
 
-## Was es kann
+## What it does
 
-**LEDs** — Power-, Netzwerk- und sechs Platten-LEDs an der Gerätefront:
+**LEDs** — power, network, and six drive LEDs on the front panel:
 
-| LED | Verhalten |
+| LED | Behaviour |
 |---|---|
-| Power | Blau = alle Pools ONLINE · Orange blinkend = degraded/faulted |
-| Netzwerk | Farbe nach Linkgeschwindigkeit, Blinkfrequenz nach **echtem Durchsatz** |
-| disk1–6 | Grün = Platte vorhanden und fehlerfrei · Rot blinkend = ZFS-Fehler · Aus = Schacht leer |
+| power | Blue = all pools ONLINE · Amber blinking = degraded/faulted |
+| network | Colour by link speed, blink rate by **actual throughput** |
+| disk1–6 | Green = drive present and healthy · Red blinking = ZFS errors · Off = empty bay |
 
-**Lüfter** — beide Anschlüsse werden **getrennt** geregelt:
+**Fans** — the two headers are controlled **independently**:
 
-| Anschluss | Regelgröße |
+| Header | Driven by |
 |---|---|
-| Lüfter 1 (Gehäuse) | höchster Bedarf aus CPU, Datenträgern und Netzwerk-Controllern |
-| Lüfter 2 | GPU-Temperatur (hier: dedizierter Lüfter für eine Tesla T4) |
+| Fan 1 (chassis) | highest demand across CPU, drives, and network controllers |
+| Fan 2 | GPU temperature (here: a dedicated fan for a Tesla T4) |
 
-Mit Glättung gegen Drehzahlpendeln und Notfallschwellen, die alles übersteuern.
+With smoothing to prevent speed hunting, and emergency thresholds that override
+everything else.
 
-## Aufbau
+## Layout
 
 ```
 leds/
-  ugreen-led-lib.sh   Bibliothek: Farbe, Helligkeit, Blinken per i2cset
-  led-update.sh       Power- und Platten-LEDs (Cron, alle 5 Min)
-  led-network.sh      Netzwerk-LED mit Durchsatzanzeige (Daemon, 2s-Takt)
+  ugreen-led-lib.sh   Library: colour, brightness, blinking via i2cset
+  led-update.sh       Power and drive LEDs (cron, every 5 min)
+  led-network.sh      Network LED with throughput display (daemon, 2s interval)
 fan/
-  fan-control.py      Lüfter-Daemon mit getrennten Kurven
-  tools/              Diagnose- und Messwerkzeuge (siehe unten)
+  fan-control.py      Fan daemon with independent curves
+  tools/              Diagnostic and measurement tools (see below)
 docs/
-  hardware.md         Register, Indizes, Mappings, gemessene Kennlinien
-  findings.md         Was nicht funktioniert und warum
+  hardware.md         Registers, indices, mappings, measured curves
+  findings.md         What doesn't work, and why
 ```
 
 ## Installation
 
-Die Scripte gehören auf ein **Dataset im Pool**, nicht ins Systemverzeichnis —
-TrueNAS' Root ist schreibgeschützt und wird bei Updates ersetzt.
+The scripts belong on a **dataset in the pool**, not in a system directory —
+the TrueNAS root filesystem is read-only and gets replaced on updates.
 
 ```bash
 zfs create <pool>/scripts
 mkdir -p /mnt/<pool>/scripts/{leds_controller,fancontrol}
 ```
 
-Scripte dorthin kopieren, ausführbar machen, dann in der Weboberfläche unter
-**System Settings → Advanced** eintragen:
+Copy the scripts there, make them executable, then register them in the web UI
+under **System Settings → Advanced**:
 
-| Typ | Zeitpunkt | Befehl |
+| Type | When | Command |
 |---|---|---|
 | Command | PREINIT | `modprobe i2c-i801 && modprobe i2c-dev` |
 | Command | POSTINIT | `/mnt/<pool>/scripts/leds_controller/led-update.sh` |
 | Command | POSTINIT | `setsid nohup /mnt/<pool>/scripts/leds_controller/led-network.sh > /dev/null 2>&1 < /dev/null &` |
 | Command | POSTINIT | `setsid nohup /mnt/<pool>/scripts/fancontrol/fan-control.py > /dev/null 2>&1 < /dev/null &` |
 
-Dazu ein Cron-Job als `root`, alle 5 Minuten:
+Plus a cron job running as `root` every 5 minutes:
 `/mnt/<pool>/scripts/leds_controller/led-update.sh`
 
-**Pfade anpassen:** Die Scripte haben `/mnt/nvme-tank/scripts/...` fest
-eingetragen (jeweils oben in der Datei).
+**Adjust the paths:** the scripts have `/mnt/nvme-tank/scripts/...` hardcoded
+near the top of each file.
 
-## Anpassen
+## Tuning
 
-Farben, Schwellwerte und Kurven stehen als Konstanten am Anfang der jeweiligen
-Datei. Die Lüfterkurven in `fan-control.py` sind bewusst konservativ ausgelegt —
-die verbauten NVMe sind erst bei 87 °C kritisch, die Kurve geht schon bei 58 °C
-auf Vollast. Wer Ruhe der Kühlung vorzieht, kann die Schwellen deutlich anheben.
+Colours, thresholds, and curves are constants at the top of each file. The fan
+curves in `fan-control.py` are deliberately conservative — the NVMe drives in
+this machine only become critical at 87 °C, while the curve already reaches full
+speed at 58 °C. If you value quiet over cooling headroom, raise the thresholds
+considerably.
 
-## Werkzeuge
+## Tools
 
-| Werkzeug | Zweck |
+| Tool | Purpose |
 |---|---|
-| `fan/tools/ec_read.py` | Aktuelle Drehzahlen und Ansteuerung auslesen |
-| `fan/tools/ec_calib.py` | Kennlinie aufnehmen (Duty → RPM), mit Temperaturabbruch |
-| `fan/tools/thermal_log.py` | Temperaturverlauf protokollieren |
-| `fan/tools/loadtest_log.py` | Messprotokoll während eines Lasttests |
-| `fan/tools/ab_test.py` | A/B-Vergleich zweier Lüftereinstellungen |
+| `fan/tools/ec_read.py` | Read current fan speeds and control values |
+| `fan/tools/ec_calib.py` | Record a duty-to-RPM curve, with a temperature abort |
+| `fan/tools/thermal_log.py` | Log temperatures over time |
+| `fan/tools/loadtest_log.py` | Record measurements during a load test |
+| `fan/tools/ab_test.py` | A/B comparison of two fan settings |
 
-Alle Werkzeuge außer `ec_calib.py` und `ab_test.py` sind rein lesend.
+Every tool except `ec_calib.py` and `ab_test.py` is read-only.
 
-## Sicherheitshinweis
+## Safety note
 
-Falsche Werte in Lüfterregistern können Hardware überhitzen. Die Scripte setzen
-bei Fehlern, beim Beenden und über den Notfallschwellen immer auf **Vollast** —
-prüfe das nach eigenen Änderungen. Nimm eine Kennlinie nur mit
-Temperaturüberwachung und Abbruchbedingung auf.
+Wrong values in fan registers can overheat hardware. These scripts always fall
+back to **full speed** on error, on shutdown, and above the emergency thresholds
+— verify that this still holds after your own changes. Only record a curve with
+temperature monitoring and an abort condition in place.
 
-Die EC-Firmware erzwingt zusätzlich eine eigene Mindestdrehzahl, wenn es warm
-wird (siehe [docs/findings.md](docs/findings.md)) — ein Sicherheitsnetz unter
-allem, was hier läuft.
+The EC firmware additionally enforces a minimum fan speed once things get warm
+(see [docs/findings.md](docs/findings.md)) — a safety net underneath everything
+running here.
 
-## Lizenz und Herkunft
+## License and credits
 
-Die LED-Protokollkenntnisse stammen aus der Reverse-Engineering-Arbeit von
+The LED protocol knowledge comes from the reverse-engineering work in
 [miskcoo/ugreen_leds_controller](https://github.com/miskcoo/ugreen_leds_controller)
-und dem iDX-Fork von
+and the iDX fork by
 [klein0r](https://github.com/klein0r/ugreen_leds_controller);
-die EC-Registerbelegung aus
+the EC register map comes from
 [ugreen-idx6011-panel](https://github.com/Reevoy24/ugreen-idx6011-panel).
-Dank an deren Autoren — ohne diese Vorarbeit wäre das hier nicht möglich gewesen.
+Thanks to their authors — none of this would have been possible without that
+groundwork.

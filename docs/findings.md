@@ -1,45 +1,44 @@
-# Was nicht funktioniert — und warum
+# What doesn't work — and why
 
-Dieses Dokument ist wichtiger als der Code. Es hält fest, welche naheliegenden
-Wege wir ausprobiert haben und woran sie gescheitert sind. Ohne diese Notizen
-probiert man den vermeintlich einfacheren Weg in einem Jahr erneut aus.
+This document matters more than the code. It records which obvious routes were
+tried and where they failed. Without these notes you end up trying the
+seemingly easier path again a year from now.
 
-Alles am 2026-08-01 auf einem UGREEN iDX6011 **non-Pro** unter TrueNAS SCALE
-26.0.0-BETA.2 festgestellt.
+Everything established on 2026-08-01 on a UGREEN iDX6011 **non-Pro** running
+TrueNAS SCALE 26.0.0-BETA.2.
 
 ---
 
 ## LEDs
 
-### `ugreen_leds_cli` setzt die Helligkeit auf 0
+### `ugreen_leds_cli` sets brightness to 0
 
-Der iDX-Fork [klein0r/ugreen_leds_controller](https://github.com/klein0r/ugreen_leds_controller)
-erkennt den iDX6011 korrekt per DMI und liest auch alle LEDs sauber aus. Aber:
+The iDX fork [klein0r/ugreen_leds_controller](https://github.com/klein0r/ugreen_leds_controller)
+detects the iDX6011 correctly via DMI and reads all LEDs cleanly. However:
 
-**Jeder Aufruf des CLI setzt die Helligkeit der angesprochenen LED auf 0** —
-auch ein reines `-status`. Die LED geht damit aus.
+**Every invocation of the CLI sets the brightness of the addressed LED to 0** —
+including a plain `-status`. The LED goes dark as a result.
 
-Beobachtbar so: Farbe per rohem `i2cset` setzen, Helligkeit per `i2cset` auf
-255 — die LED leuchtet. Danach `ugreen_leds_cli power -status` aufrufen — die
-LED geht aus. Der Statuswert meldet dann konsequent `brightness = 0`, während
-die Farbe korrekt übernommen wurde.
+How to observe it: set the colour via raw `i2cset`, set brightness to 255 via
+`i2cset` — the LED lights up. Then run `ugreen_leds_cli power -status` — the LED
+goes out. The status output consistently reports `brightness = 0` afterwards,
+while the colour was applied correctly.
 
-**Konsequenz:** Das CLI ist auf diesem Modell unbrauchbar. Wir sprechen den
-MCU direkt per `i2cset` an. Das Protokoll selbst funktioniert einwandfrei — der
-Fehler sitzt im CLI, nicht in der Hardware.
+**Consequence:** the CLI is unusable on this model. We talk to the MCU directly
+via `i2cset`. The protocol itself works perfectly — the bug is in the CLI, not
+in the hardware.
 
-Das gebaute Binary liegt trotzdem als Referenz im Repo; es ist nützlich, um
-sich den Ist-Zustand aller LEDs anzusehen (dann aber danach neu setzen).
+The compiled binary is still kept in the repo for reference; it is useful for
+inspecting the current state of all LEDs (just re-apply them afterwards).
 
-### Es gibt keine fertigen Binaries für den iDX6011
+### There are no prebuilt binaries for the iDX6011
 
-Für die DX/DXP-Serie liefert
+For the DX/DXP series,
 [miskcoo/ugreen_leds_controller](https://github.com/miskcoo/ugreen_leds_controller)
-fertige Releases. Für die iDX-Serie braucht man den klein0r-Fork — und der hat
-**keine Releases**. Das CLI muss aus dem Quellcode gebaut werden.
+ships releases. The iDX series needs the klein0r fork — and that has **no
+releases**. The CLI has to be built from source.
 
-TrueNAS hat keinen Compiler. Der Bau gelingt trotzdem in einem
-Wegwerf-Container:
+TrueNAS has no compiler. The build still works in a throwaway container:
 
 ```bash
 docker run --rm -v /mnt/<pool>/scripts/leds_controller:/out debian:bookworm bash -c '
@@ -48,15 +47,15 @@ docker run --rm -v /mnt/<pool>/scripts/leds_controller:/out debian:bookworm bash
   cd /src/cli && make && cp ugreen_leds_cli /out/'
 ```
 
-Das Makefile linkt bereits statisch. Auf dem Host wird nichts installiert.
+The makefile already links statically. Nothing is installed on the host.
 
-### Der Weg über das Kernel-Modul ist eine Sackgasse
+### The kernel module route is a dead end
 
-Naheliegend, aber falsch: Das Installationsscript
+Obvious, but wrong: the installer script
 [0x556c79/install_ugreen_leds_controller](https://github.com/0x556c79/install_ugreen_leds_controller)
-sucht ein **vorgebautes Kernel-Modul** passend zur TrueNAS-Version. Vorhanden
-sind nur Builds bis Goldeye (25.10) — für 26.0.x existiert in keinem der beiden
-Repos etwas, und es bricht sauber ab:
+looks for a **prebuilt kernel module** matching the TrueNAS version. Only builds
+up to Goldeye (25.10) exist — neither repository has anything for 26.0.x, and it
+aborts cleanly:
 
 ```
 Detected TrueNAS version: 26.0.0
@@ -64,151 +63,148 @@ Unsupported TrueNAS SCALE version: 26.0.0.
 No precompiled kernel module found in repository.
 ```
 
-**Das Modul wird aber gar nicht gebraucht.** Es liefert `/sys/class/leds`-Einträge
-und Trigger; für reine Statusanzeige genügt der Userspace-Zugriff über I²C. Der
-Verzicht darauf ist sogar der robustere Weg, weil kein Kernel-Update etwas
-kaputtmachen kann.
+**The module isn't needed at all.** It provides `/sys/class/leds` entries and
+triggers; plain status display works fine with userspace I²C access. Skipping it
+is in fact the more robust route, since no kernel update can break it.
 
-### Das non-Pro hat eine Netzwerk-LED weniger
+### The non-Pro has one network LED fewer
 
-Das Pro-Modell hat zwei Netzwerk-LEDs (`network_stat`, `network_stat2`), das
-non-Pro nur eine. Dadurch ist die **gesamte Platten-Kette um einen Index
-verschoben**, und `0x08` existiert nicht.
+The Pro model has two network LEDs (`network_stat`, `network_stat2`), the
+non-Pro only one. This shifts the **entire drive chain by one index**, and
+`0x08` does not exist.
 
-Wer die Pro-Belegung übernimmt, wundert sich über eine dunkle erste Platten-LED
-und eine, die nie reagiert. Siehe [hardware.md](hardware.md) für die korrekte
-Tabelle.
+Anyone adopting the Pro mapping will wonder about a dark first drive LED and one
+that never responds. See [hardware.md](hardware.md) for the correct table.
 
-### Blinken hört nicht von selbst auf
+### Blinking doesn't stop by itself
 
-Die MCU blinkt autonom weiter, bis man sie aktiv stoppt. Wer einfach aufhört,
-Blink-Befehle zu senden, hat eine dauerhaft blinkende LED.
+The MCU keeps blinking autonomously until actively stopped. If you simply stop
+sending blink commands, you get a permanently blinking LED.
 
-Der Mode-Reset (`0x04` mit Nullen) schaltet die LED dabei **ab** — es braucht
-zwingend ein anschließendes `0x03` mit `0xFF`, um sie wieder zu aktivieren.
-Fehlt das, bleibt sie dunkel, obwohl Farbe und Helligkeit gesetzt sind.
+The mode reset (`0x04` with zeros) switches the LED **off** in the process — a
+subsequent `0x03` with `0xFF` is mandatory to bring it back. Without it the LED
+stays dark even though colour and brightness are set.
 
 ---
 
-## Lüfter
+## Fans
 
-### `it87` funktioniert prinzipiell nicht
+### `it87` fundamentally does not work here
 
-Auf dem DXP6800 Pro läuft die Lüftersteuerung über einen `it8613` Super-I/O-Chip
-und den [IT-Kuny-Treiber](https://github.com/IT-Kuny/UGREEN-DXP-FAN-NAS-Driver).
-Das lässt sich **nicht** auf den iDX6011 übertragen.
+On the DXP6800 Pro, fan control goes through an `it8613` Super I/O chip and the
+[IT-Kuny driver](https://github.com/IT-Kuny/UGREEN-DXP-FAN-NAS-Driver). That
+**cannot** be transferred to the iDX6011.
 
-Der iDX6011 hat keinen Super-I/O-Baustein, sondern einen **ITE IT5571 Embedded
-Controller**. `modprobe it87` quittiert entsprechend mit `No such device` — auch
-das im TrueNAS-Kernel bereits enthaltene `it87.ko`. Das IT-Kuny-Repo listet den
-iDX6011 folgerichtig nicht als unterstützt.
+The iDX6011 has no Super I/O chip but an **ITE IT5571 embedded controller**.
+`modprobe it87` accordingly returns `No such device` — including the `it87.ko`
+already shipped in the TrueNAS kernel. The IT-Kuny repository consistently does
+not list the iDX6011 as supported.
 
-Nebenbei: Kernel-Header *sind* auf TrueNAS vorhanden
-(`/usr/src/linux-headers-truenas-production-amd64`, `hwmon-vid.ko`, BTF unter
-`/sys/kernel/btf/vmlinux`) — ein Modulbau wäre also technisch möglich. Er würde
-hier nur nichts nützen.
+As an aside: kernel headers *are* present on TrueNAS
+(`/usr/src/linux-headers-truenas-production-amd64`, `hwmon-vid.ko`, BTF under
+`/sys/kernel/btf/vmlinux`) — so building a module would be technically possible.
+It just wouldn't help here.
 
-### `ug-fand` regelt beide Lüfter gekoppelt
+### `ug-fand` drives both fans in lockstep
 
-[ug-fand](https://github.com/Reevoy24/ugreen-idx6011-panel) funktioniert und ist
-sauber gebaut — es hat uns die EC-Registerbelegung geliefert. Aber es fährt
-**beide Lüfter mit demselben Wert** und kennt keine GPU-Temperatur.
+[ug-fand](https://github.com/Reevoy24/ugreen-idx6011-panel) works and is cleanly
+built — it is where the EC register map came from. But it drives **both fans
+with the same value** and has no notion of GPU temperature.
 
-Für den Standardfall (zwei gleichwertige Gehäuselüfter) ist das richtig. Wer an
-einem Anschluss einen dedizierten Lüfter für eine Erweiterungskarte hat, braucht
-getrennte Regelung — daher der eigene Daemon.
+For the standard case (two equivalent chassis fans) that is correct. Anyone with
+a dedicated fan for an expansion card on one header needs independent control —
+hence the custom daemon.
 
-Zwei Fallstricke beim Ausprobieren:
-* Das Binary hat **keine `--help`-Option**. Es startet stattdessen sofort als
-  Daemon und regelt die Lüfter.
-* Nach dem Beenden bleiben die zuletzt geschriebenen Werte stehen — die Lüfter
-  gehen **nicht** automatisch auf einen sicheren Wert zurück.
+Two pitfalls when trying it out:
+* The binary has **no `--help` option**. It immediately starts as a daemon and
+  takes over the fans instead.
+* After termination the last written values persist — the fans do **not**
+  automatically return to a safe value.
 
-### Das Freigabe-Byte wird leicht übersehen
+### The enable byte is easy to miss
 
-Der auffälligste Fehler in unserer eigenen Entwicklung: Wir schrieben nur die
-Geschwindigkeitsregister (`0x9d`/`0x9f`), nicht die Freigabe-Bytes
-(`0x9c`/`0x9e`).
+The most striking mistake in our own development: we only wrote the duty
+registers (`0x9d`/`0x9f`), not the enable bytes (`0x9c`/`0x9e`).
 
-Der EC nimmt den Wert dann nur teilweise an. Konkret gemessen: Duty 198 ergab
-**5557 RPM statt 7435 RPM** — rund ein Viertel Drehzahl verschenkt, während die
-GPU unter Volllast stand. Von außen wirkt es, als sei die Regelung „zu leise
-eingestellt".
+The EC then only partially accepts the value. Measured concretely: duty 198
+produced **5557 RPM instead of 7435 RPM** — roughly a quarter of the speed given
+away while the GPU was under full load. From the outside it looks as if the
+control loop were "tuned too quiet".
 
-Nach einem Neustart stehen die Freigabe-Bytes auf `0`. Das heißt **nicht**
-„Lüfter aus", sondern „Firmware regelt selbst" — die Lüfter drehen dabei.
+After a reboot the enable bytes sit at `0`. That does **not** mean "fans off",
+it means "firmware controls this itself" — the fans do spin.
 
-### Die Firmware erzwingt eine Mindestdrehzahl
+### The firmware enforces a minimum speed
 
-Der EC gibt die Kontrolle nicht vollständig ab. Wird es warm (CPU ab etwa
-55 °C), hält er Lüfter 1 nahe Vollast, unabhängig davon, welchen niedrigeren
-Wert wir schreiben. Erst bei kühler CPU greift unser Wert.
+The EC does not hand over control entirely. Once things get warm (CPU from
+around 55 °C), it holds fan 1 near full speed regardless of the lower value we
+write. Only with a cool CPU does our value take effect.
 
-Gemessen unter GPU-Volllast: Duty 150 und Duty 195 ergaben **1918 bzw. 1916
-RPM** — praktisch identisch. Bei kalter CPU liefert Duty 150 dagegen rund
-1530 RPM.
+Measured under full GPU load: duty 150 and duty 195 produced **1918 and 1916
+RPM** respectively — practically identical. With a cold CPU, duty 150 yields
+around 1530 RPM instead.
 
-Zwei Konsequenzen:
-* Die gemessene Kennlinie gilt nur im kühlen Zustand.
-* Eine explizite Kopplung „Lüfter 1 mindestens X % von Lüfter 2" ist überflüssig
-  — die Hardware macht das bereits. Wenn die GPU heiß wird, läuft auch die CPU
-  unter Last und Lüfter 1 ist ohnehin oben.
+Two consequences:
+* The measured curve only holds in the cool state.
+* An explicit "fan 1 at least X % of fan 2" coupling is unnecessary — the
+  hardware already does it. When the GPU gets hot, the CPU is under load too and
+  fan 1 is already up.
 
-Das ist ein nützliches Sicherheitsnetz: Selbst ein abgestürzter Daemon oder eine
-falsch ausgelegte Kurve führt nicht zur Überhitzung.
+This is a useful safety net: even a crashed daemon or a badly designed curve
+will not lead to overheating.
 
-**Im Alltag greift das selten.** Eine Auswertung von 10 104 Log-Zeilen aus dem
-normalen Betrieb ergab CPU-Temperaturen zwischen 38 und 91 °C, aber nur **1,9 %
-der Messungen über 55 °C**. Der einzige Duty-Wert, der dort sowohl mit kühler
-als auch mit warmer CPU ausreichend oft vorkam, zeigte keinen Unterschied:
+**In everyday operation this rarely kicks in.** An analysis of 10,104 log lines
+from normal operation found CPU temperatures between 38 and 91 °C, but only
+**1.9 % of samples above 55 °C**. The only duty value that occurred often enough
+with both a cool and a warm CPU showed no difference:
 
 | Duty | CPU < 55 °C | CPU ≥ 55 °C |
 |---:|---:|---:|
 | 119 | 1278 RPM (n=41) | 1256 RPM (n=6) |
 
-Der oben beschriebene Effekt ist damit nicht widerlegt — der A/B-Test lief unter
-GPU-Volllast, wo die CPU deutlich über 55 °C liegt. Aber die Schwelle, ab der
-die Firmware spürbar übersteuert, liegt offenbar höher als 55 °C, und im
-gewöhnlichen Betrieb regelt der Daemon Lüfter 1 unbehelligt. Wer den Effekt
-nachmessen will, braucht gezielte Last statt Betriebsdaten.
+That does not disprove the effect described above — the A/B test ran under full
+GPU load, where the CPU sits well above 55 °C. But the threshold at which the
+firmware noticeably overrides appears to be higher than 55 °C, and in ordinary
+operation the daemon controls fan 1 unimpeded. Measuring the effect properly
+requires deliberate load rather than production data.
 
-### NVMe: nur `Composite` auswerten
+### NVMe: only evaluate `Composite`
 
-NVMe melden mehrere Sensoren. `Composite` ist der offizielle Wert mit Warn- und
-Kritischschwelle — der, den SMART und die TrueNAS-Berichte anzeigen. Daneben
-gibt es `Sensor 1`/`Sensor 2` (interne Messpunkte, meist der Controller).
+NVMe drives report several sensors. `Composite` is the official value with
+warning and critical thresholds — the one SMART and the TrueNAS reports display.
+Alongside it are `Sensor 1`/`Sensor 2` (internal measurement points, usually the
+controller).
 
-Auf diesem Gerät meldet die billige Boot-NVMe (YSO128) einen `Sensor 1` mit
-dauerhaft ~51 °C, während ihr `Composite` bei 35 °C liegt — **16 Grad
-Unterschied, ohne definierten Grenzwert für den heißen Sensor**.
+On this machine the cheap boot NVMe (YSO128) reports a `Sensor 1` sitting at
+~51 °C permanently, while its `Composite` reads 35 °C — **a 16-degree gap, with
+no defined limit for the hotter sensor**.
 
-Wer das Maximum über alle Sensoren nimmt, regelt auf einen Wert, der nichts
-bedeutet, auf dem unwichtigsten Datenträger im System: Lüfter 1 lief mit Duty
-96–110 statt der angemessenen 52, während die eigentlichen Pool-Laufwerke
-entspannt bei 37 °C lagen.
+Taking the maximum across all sensors means controlling on a meaningless value
+from the least important drive in the system: fan 1 ran at duty 96–110 instead
+of an appropriate 52, while the actual pool drives sat comfortably at 37 °C.
 
-Auffällig wird das erst im Vergleich mit den TrueNAS-Berichten — deren Werte
-wichen deutlich von denen des Daemons ab.
+This only becomes apparent when comparing against the TrueNAS reports — their
+values differed noticeably from the daemon's.
 
 ---
 
-## Tesla T4 in diesem Gehäuse
+## Tesla T4 in this chassis
 
-Anmerkungen zu einer passiv gekühlten Tesla T4 im iDX6011, gekühlt von einem
-dedizierten Lüfter am zweiten Anschluss.
+Notes on a passively cooled Tesla T4 in the iDX6011, cooled by a dedicated fan
+on the second header.
 
-**Der Slot meldet `SlotPowerLimit 25W`** — folgenlos. `nvidia-smi` weist ein
-Limit von 70 W aus, und die Karte zieht diese auch. Der PCIe-Link läuft mit
-x8 statt x16 (`Width x8 (downgraded)`), was funktional unkritisch ist.
+**The slot reports `SlotPowerLimit 25W`** — with no consequence. `nvidia-smi`
+reports a 70 W limit, and the card draws it. The PCIe link runs at x8 instead of
+x16 (`Width x8 (downgraded)`), which is functionally uncritical.
 
-**Treiber:** Nicht manuell installieren. TrueNAS bringt passende Treiber mit,
-zu aktivieren über `midclt call --job docker.update '{"nvidia": true}'` oder die
-Weboberfläche. Hier: Treiber 590.44.01, CUDA 13.1.
+**Driver:** do not install manually. TrueNAS ships suitable drivers, enabled via
+`midclt call --job docker.update '{"nvidia": true}'` or the web UI. Here: driver
+590.44.01, CUDA 13.1.
 
-**Lasttest (`gpu-burn`, 10 Minuten, geschlossenes Gehäuse):** Die Karte pendelt
-sich bei **76–78 °C** ein, GPU-Lüfter auf Vollast.
+**Load test (`gpu-burn`, 10 minutes, closed chassis):** the card settles at
+**76–78 °C** with the GPU fan at full speed.
 
-Entscheidend ist die Ursache der Taktabsenkung von 1590 auf ~765 MHz:
+What matters is the cause of the clock drop from 1590 to ~765 MHz:
 
 ```
 SW Power Cap:          Active
@@ -216,9 +212,9 @@ HW Thermal Slowdown:   Not Active
 SW Thermal Slowdown:   Not Active
 ```
 
-Die Karte ist **power-limitiert, nicht thermisch limitiert**; alle
-Thermal-Slowdown-Zähler stehen auf 0 µs. Die Kühlung ist also ausreichend, und
-ein Absenken des Power-Limits (`nvidia-smi -pl`) löst kein vorhandenes Problem.
+The card is **power-limited, not thermally limited**; all thermal slowdown
+counters read 0 µs. Cooling is therefore adequate, and lowering the power limit
+(`nvidia-smi -pl`) would solve a problem that does not exist.
 
-Wer die Temperatur allein sieht, kommt leicht zum gegenteiligen Schluss — die
-Throttle-Gründe abzufragen ist der einzige verlässliche Weg.
+Looking at temperature alone leads easily to the opposite conclusion — querying
+the throttle reasons is the only reliable way to tell.
